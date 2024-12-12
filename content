@@ -1,1 +1,78 @@
+CREATE TRIGGER trg_CHITIETDATHANG
+ON CHITIETDATHANG
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    BEGIN TRY
+        BEGIN TRANSACTION;
+        -- Xử lý INSERT
+        IF EXISTS (SELECT * FROM INSERTED)
+        BEGIN
+            -- Kiểm tra số lượng 
+            IF EXISTS (
+                SELECT *
+                FROM INSERTED I
+                JOIN MATHANG MH ON I.maHang = MH.maHang
+                WHERE I.soLuong > MH.soLuong
+            )
+            BEGIN
+                RAISERROR ('Số lượng bán vượt quá số lượng hiện có!', 16, 1);
+                ROLLBACK TRANSACTION;
+                RETURN;
+            END;
+			-- Cập nhật giá tiền bán
+			UPDATE CHITIETDATHANG
+			SET giaBan = MH.giaHang
+			FROM CHITIETDATHANG
+			JOIN INSERTED I ON  I.SoHoaDon = CHITIETDATHANG.SoHoaDon
+			JOIN MATHANG MH on MH.maHang = CHITIETDATHANG.maHang
+            -- Giảm số lượng hàng hiện có
+            UPDATE MH
+            SET MH.soLuong = MH.soLuong - I.soLuong
+            FROM MATHANG MH
+            JOIN INSERTED I ON MH.maHang = I.maHang;
+        END;
+        -- Xử lý UPDATE
+        IF EXISTS (SELECT * FROM INSERTED) AND EXISTS (SELECT * FROM DELETED)
+        BEGIN
+            -- Kiểm tra hợp lệ số lượng bán sau khi cập nhật
+            IF EXISTS (
+                SELECT *
+                FROM INSERTED I
+                JOIN DELETED D ON I.maHang = D.maHang
+                JOIN MATHANG MH ON I.maHang = MH.maHang
+                WHERE (MH.soLuong + D.soLuong - I.soLuong) < 0
+                   OR I.soLuong < 1
+            )
+            BEGIN
+                RAISERROR ('Số lượng bán không hợp lệ!', 16, 1);
+                ROLLBACK TRANSACTION;
+                RETURN;
+            END;
+            -- Cập nhật lại số lượng hàng hiện có
+            UPDATE MH
+            SET MH.soLuong = MH.soLuong + D.soLuong - I.soLuong
+            FROM MATHANG MH
+            JOIN INSERTED I ON MH.maHang = I.maHang
+            JOIN DELETED D ON MH.maHang = D.maHang;
+        END;
+        COMMIT TRANSACTION;
+    END TRY
+    BEGIN CATCH
+        -- Nếu có lỗi, rollback và ném lỗi
+        ROLLBACK TRANSACTION;
+        THROW;
+    END CATCH;
+END;
+GO
+
+-- Insert vào tbl CHITIETDATHANG
+INSERT INTO CHITIETDATHANG (SoHoaDon, MaHang, SoLuong)
+VALUES ('HD00005', 'MH00007', 5);
+
+-- Cập nhật số lượng bán
+UPDATE CHITIETDATHANG 
+SET soLuong = 10 
+WHERE SoHoaDon = 'HD00005'; 
+
 
